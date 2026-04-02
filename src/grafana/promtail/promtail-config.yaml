@@ -1,0 +1,73 @@
+# promtail-config.yaml
+# Deploy to: /opt/grafana/promtail/promtail-config.yaml
+#
+# Ships all forensic evidence logs to Loki.
+# Each scrape_config maps to a paper plane for dashboard filtering.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+
+  # Gap 2 — Tetragon ZTA violation events (ZeroTrace paper)
+  - job_name: tetragon
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job:   tetragon
+          plane: gap2
+          paper: zerotrace
+          __path__: /forensics/tetragon/*.json
+
+  # Gap 3 — Volatility memory analysis results (SemBridge paper)
+  - job_name: volatility
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job:   volatility
+          plane: gap3
+          paper: sembridge
+          __path__: /forensics/zeek/vol_*.json
+
+  # Gap 6 — RITA behavioral analysis (LegalTrace paper)
+  - job_name: rita
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job:   rita
+          plane: gap6
+          paper: legaltrace
+          __path__: /forensics/rita/*.json
+
+  # All planes — evidence manifest (cross-paper correlation)
+  - job_name: manifest
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job:   manifest
+          plane: all
+          paper: all
+          __path__: /forensics/manifest/evidence_manifest.jsonl
+
+  # System logs
+  - job_name: system
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job:   system
+          __path__: /var/log/syslog
+
+  # PCAP rotation log
+  - job_name: pcap_capture
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job:   pcap_capture
+          __path__: /var/log/pcap-capture.log

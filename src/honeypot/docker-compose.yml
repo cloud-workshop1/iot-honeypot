@@ -1,0 +1,75 @@
+# docker-compose.yml
+# Deploy to: /opt/honeypot/docker-compose.yml
+#
+# Four IoT microservices forming the Hikvision DS-2CD2183G2 honeypot.
+# Pinned image versions for reproducibility (not :latest in production).
+# Fix from Plan.pdf: consistent network name "iot-internal" throughout.
+
+version: '3.9'
+
+networks:
+  iot-internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+services:
+
+  mqtt-broker:
+    image: eclipse-mosquitto:2.0.22
+    labels:
+      role: mqtt-broker
+    networks:
+      iot-internal:
+        ipv4_address: 172.20.0.10
+    ports:
+      - "1883:1883"         # Exposed to internet — attacker entry point
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - /opt/spire/sockets:/var/run/spire   # SPIFFE SVID socket
+    restart: unless-stopped
+
+  web-ui:
+    image: nginx:1.25-alpine
+    labels:
+      role: web-ui
+    networks:
+      iot-internal:
+        ipv4_address: 172.20.0.11
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-iot.conf:/etc/nginx/nginx.conf
+      - ./html:/usr/share/nginx/html       # Fake Hikvision camera web UI
+      - /opt/spire/sockets:/var/run/spire
+    restart: unless-stopped
+
+  firmware-updater:
+    image: python:3.11-slim
+    labels:
+      role: firmware-updater
+    networks:
+      iot-internal:
+        ipv4_address: 172.20.0.12
+    # NOT published to host — ZTA violation target (port 8080 internal only)
+    expose:
+      - "8080"
+    volumes:
+      - ./firmware_server.py:/app/firmware_server.py
+      - /opt/spire/sockets:/var/run/spire
+    command: python3 /app/firmware_server.py
+    restart: unless-stopped
+
+  behavior-sim:
+    image: python:3.11-slim
+    labels:
+      role: behavior-sim
+    networks:
+      iot-internal:
+        ipv4_address: 172.20.0.20
+    volumes:
+      - ./iot_behavior_sim.py:/app/iot_behavior_sim.py
+    command: python3 /app/iot_behavior_sim.py
+    restart: unless-stopped

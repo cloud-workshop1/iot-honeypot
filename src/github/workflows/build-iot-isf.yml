@@ -1,0 +1,102 @@
+# build-iot-isf.yml
+# Deploy to: .github/workflows/build-iot-isf.yml in the GitHub repo
+#
+# Triggered on every push to firmware/** or kernel-config/**
+# Builds ARM Linux kernel with DWARF4 debug symbols,
+# extracts Volatility 3 ISF, uploads as GitHub Release artifact.
+# Runs free on GitHub Education (ubuntu-latest hosted runner).
+
+name: Build IoT ARM Firmware + Generate Volatility ISF
+
+on:
+  push:
+    paths:
+      - 'firmware/**'
+      - 'kernel-config/**'
+  workflow_dispatch:   # Allow manual trigger
+
+jobs:
+  build-and-profile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ARM cross-compiler + DWARF tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf \
+            binutils-arm-linux-gnueabihf \
+            libelf-dev dwarfdump pahole \
+            python3-pip
+          pip3 install volatility3==2.27.0
+
+      - name: Download ARM kernel source (if not in repo)
+        run: |
+          if [ ! -d "linux-5.15.162" ]; then
+            wget -q https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.15.162.tar.xz
+            tar -xf linux-5.15.162.tar.xz
+          fi
+
+      - name: Configure ARM kernel with DWARF4 debug symbols
+        run: |
+          cd linux-5.15.162
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- vexpress_defconfig
+          ./scripts/config \
+            --enable CONFIG_DEBUG_INFO \
+            --enable CONFIG_DEBUG_INFO_DWARF4 \
+            --disable CONFIG_DEBUG_INFO_REDUCED \
+            --enable CONFIG_KALLSYMS \
+            --enable CONFIG_KALLSYMS_ALL \
+            --enable CONFIG_FRAME_POINTER
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- olddefconfig
+
+      - name: Build kernel (vmlinux contains DWARF symbols)
+        run: |
+          cd linux-5.15.162
+          make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j4 zImage
+          echo "vmlinux size: $(du -sh vmlinux)"
+
+      - name: Extract DWARF symbols → Volatility 3 ISF
+        run: |
+          cd linux-5.15.162
+          COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "${{ github.sha }}" | cut -c1-7)
+
+          python3 -m volatility3.framework.automagic.symbol_cache \
+            vmlinux \
+            --output /tmp/iot-arm-linux-${COMMIT}.json
+
+          echo "ISF generated: iot-arm-linux-${COMMIT}.json"
+          echo "ISF_FILE=/tmp/iot-arm-linux-${COMMIT}.json" >> $GITHUB_ENV
+          echo "COMMIT=${COMMIT}" >> $GITHUB_ENV
+
+      - name: Validate ISF — task_struct and mm_struct must be present
+        run: |
+          python3 << 'EOF'
+          import json, glob, sys
+          files = glob.glob("/tmp/iot-arm-linux-*.json")
+          if not files:
+              print("ERROR: No ISF file found", file=sys.stderr)
+              sys.exit(1)
+          with open(files[0]) as f:
+              isf = json.load(f)
+          assert "task_struct" in isf["user_types"], "FAIL: task_struct missing from ISF"
+          assert "mm_struct"   in isf["user_types"], "FAIL: mm_struct missing from ISF"
+          print(f"PASS: ISF validated — {len(isf['user_types'])} user types found")
+          print(f"task_struct->pid offset: {isf['user_types']['task_struct']['fields']['pid']}")
+          EOF
+
+      - name: Upload ISF as workflow artifact (retained 90 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: volatility-isf-${{ github.sha }}
+          path: /tmp/iot-arm-linux-*.json
+          retention-days: 90
+
+      - name: Tag ISF as GitHub Release asset (on tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: /tmp/iot-arm-linux-*.json

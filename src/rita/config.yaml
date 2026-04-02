@@ -1,0 +1,40 @@
+# RITA config.yaml — v5.1.1
+# Deploy to: /etc/rita/config.yaml
+#
+# Upgraded from v5 to v5.1.1 (January 2026).
+# Fix: UseMTAS: false (threat intel failures in v5 caused silent import errors
+# in environments without internet access to threat intel feeds).
+
+Version: 5
+
+MongoDB:
+  ConnectionString: "mongodb://localhost:27017"
+  AuthMechanism: ""
+
+LogConfig:
+  LogLevel: 2
+  LogPath: "/var/log/rita"
+
+Bro:
+  LogPath: "/forensics/zeek"
+  DBPrefix: "iot-honeypot"
+
+BlackListed:
+  UseFeodo: true
+  UseMTAS:  false    # Disabled: v5.1.1 fix — prevents import failures from intel feed timeouts
+
+Filtering:
+  InternalSubnets:
+    - 172.20.0.0/24   # Docker iot-internal network
+    - 127.0.0.0/8
+
+Scoring:
+  Beacon:
+    TimestampScoreWeight:  0.25
+    DataSizeScoreWeight:   0.25
+    DurationScoreWeight:   0.25
+    HistogramScoreWeight:  0.25
+    DefaultConnectionThresh: 20
+
+  LongConnectionThresh: 3600   # 1 hour minimum — C2 session indicator
+  UniqueConnThresh:     2

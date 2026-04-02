@@ -1,0 +1,46 @@
+# Grafana + Loki + Promtail observability stack
+# Deploy to: /opt/grafana/docker-compose.yml
+#
+# Free replacement for Datadog log management.
+# All images have ARM64 support confirmed.
+# Access Grafana via SSH tunnel: ssh -L 3000:127.0.0.1:3000 ubuntu@ORACLE_IP
+# Then open http://localhost:3000 — login: admin / honeypot-admin
+
+version: '3.9'
+
+services:
+
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: loki
+    ports:
+      - "127.0.0.1:3100:3100"    # localhost only
+    volumes:
+      - /opt/grafana/loki:/etc/loki
+      - /forensics/loki-data:/loki
+    command: -config.file=/etc/loki/loki-config.yaml
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: promtail
+    volumes:
+      - /opt/grafana/promtail:/etc/promtail
+      - /forensics:/forensics:ro          # read-only access to evidence dirs
+      - /var/log:/var/log:ro
+    command: -config.file=/etc/promtail/promtail-config.yaml
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: grafana
+    ports:
+      - "127.0.0.1:3000:3000"    # localhost only — access via SSH tunnel
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=honeypot-admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+    volumes:
+      - /opt/grafana/grafana-data:/var/lib/grafana
+    restart: unless-stopped

@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-REPO="your-github-username/iot-honeypot-firmware"   # TODO: replace with real username
+REPO="cloud-workshop1/iot-honeypot"
 ISF_DIR="/opt/volatility3/isf"
 COMMIT="$(git -C /opt/linux-5.15.162 rev-parse --short HEAD 2>/dev/null || echo 'latest')"
 ISF_URL="https://github.com/${REPO}/releases/latest/download/iot-arm-linux-${COMMIT}.json"

@@ -59,7 +59,8 @@ services:
     volumes:
       - ./firmware_server.py:/app/firmware_server.py
       - /opt/spire/sockets:/var/run/spire
-    command: python3 /app/firmware_server.py
+    # python:3.11-slim has no Flask — install before starting
+    command: bash -c "pip install -q flask && python3 /app/firmware_server.py"
     restart: unless-stopped
 
   behavior-sim:
@@ -71,5 +72,6 @@ services:
         ipv4_address: 172.20.0.20
     volumes:
       - ./iot_behavior_sim.py:/app/iot_behavior_sim.py
-    command: python3 /app/iot_behavior_sim.py
+    # python:3.11-slim has no paho-mqtt/requests — install before starting
+    command: bash -c "pip install -q paho-mqtt requests && python3 /app/iot_behavior_sim.py"
     restart: unless-stopped

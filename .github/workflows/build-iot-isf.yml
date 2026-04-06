@@ -30,8 +30,12 @@ jobs:
             gcc-arm-linux-gnueabihf \
             binutils-arm-linux-gnueabihf \
             libelf-dev dwarfdump pahole \
-            python3-pip golang-go
+            python3-pip
           pip3 install volatility3==2.27.0
+          # Install Go 1.22 from official tarball (apt golang-go is v1.18 — too old for dwarf2json)
+          wget -q https://go.dev/dl/go1.22.5.linux-amd64.tar.gz -O /tmp/go.tar.gz
+          sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+          export PATH=$PATH:/usr/local/go/bin
           # dwarf2json: converts vmlinux DWARF debug info → Volatility 3 ISF JSON
           go install github.com/volatilityfoundation/dwarf2json@latest
 
@@ -67,6 +71,7 @@ jobs:
           COMMIT=$(echo "${{ github.sha }}" | cut -c1-7)
 
           # dwarf2json reads DWARF debug info from vmlinux and outputs Volatility 3 ISF JSON
+          export PATH=$PATH:/usr/local/go/bin
           ~/go/bin/dwarf2json linux --elf vmlinux > /tmp/iot-arm-linux-${COMMIT}.json
 
           echo "ISF generated: iot-arm-linux-${COMMIT}.json ($(wc -c < /tmp/iot-arm-linux-${COMMIT}.json) bytes)"

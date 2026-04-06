@@ -65,34 +65,40 @@ jobs:
           make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j4 zImage
           echo "vmlinux size: $(du -sh vmlinux)"
 
-      - name: Extract DWARF symbols → Volatility 3 ISF
+      - name: Extract DWARF symbols → Volatility 3 ISF + Validate
         run: |
-          cd linux-5.15.162
-          COMMIT=$(echo "${{ github.sha }}" | cut -c1-7)
-
-          # dwarf2json reads DWARF debug info from vmlinux and outputs Volatility 3 ISF JSON
+          set -euo pipefail
           export PATH=$PATH:/usr/local/go/bin
-          ~/go/bin/dwarf2json linux --elf vmlinux > /tmp/iot-arm-linux-${COMMIT}.json
+          COMMIT=$(echo "${{ github.sha }}" | cut -c1-7)
+          ISF="/tmp/iot-arm-linux-${COMMIT}.json"
 
-          echo "ISF generated: iot-arm-linux-${COMMIT}.json ($(wc -c < /tmp/iot-arm-linux-${COMMIT}.json) bytes)"
-          echo "ISF_FILE=/tmp/iot-arm-linux-${COMMIT}.json" >> $GITHUB_ENV
+          # Verify dwarf2json binary exists
+          ls -la ~/go/bin/dwarf2json
+
+          # Run dwarf2json — outputs ISF JSON to stdout
+          ~/go/bin/dwarf2json linux --elf linux-5.15.162/vmlinux > "${ISF}"
+
+          # Check file is non-empty
+          SIZE=$(wc -c < "${ISF}")
+          echo "ISF size: ${SIZE} bytes"
+          if [ "${SIZE}" -lt 1000 ]; then
+            echo "ERROR: ISF file too small (${SIZE} bytes) — dwarf2json likely failed"
+            cat "${ISF}"
+            exit 1
+          fi
+
+          echo "ISF_FILE=${ISF}" >> $GITHUB_ENV
           echo "COMMIT=${COMMIT}" >> $GITHUB_ENV
 
-      - name: Validate ISF — task_struct and mm_struct must be present
-        run: |
-          python3 << 'EOF'
-          import json, glob, sys
-          files = glob.glob("/tmp/iot-arm-linux-*.json")
-          if not files:
-              print("ERROR: No ISF file found", file=sys.stderr)
-              sys.exit(1)
-          with open(files[0]) as f:
+          # Validate in same step (avoids /tmp cross-step isolation issues)
+          python3 - << PYEOF
+          import json, sys
+          with open("${ISF}") as f:
               isf = json.load(f)
           assert "task_struct" in isf["user_types"], "FAIL: task_struct missing from ISF"
           assert "mm_struct"   in isf["user_types"], "FAIL: mm_struct missing from ISF"
           print(f"PASS: ISF validated — {len(isf['user_types'])} user types found")
-          print(f"task_struct->pid offset: {isf['user_types']['task_struct']['fields']['pid']}")
-          EOF
+          PYEOF
 
       - name: Upload ISF as workflow artifact (retained 90 days)
         uses: actions/upload-artifact@v4
